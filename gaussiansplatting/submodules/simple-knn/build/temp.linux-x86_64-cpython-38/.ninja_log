@@ -1,0 +1,4 @@
+# ninja log v5
+1	6646	1713662367989408504	/home/guru/Quarter_work/Q3/CS_252D/project/GaussianDreamer/gaussiansplatting/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/simple_knn.o	3422c0dcf6e00cee
+1	15787	1713662377120618777	/home/guru/Quarter_work/Q3/CS_252D/project/GaussianDreamer/gaussiansplatting/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/ext.o	4e6d9aa1a7a526e7
+1	29457	1713662390799459658	/home/guru/Quarter_work/Q3/CS_252D/project/GaussianDreamer/gaussiansplatting/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/spatial.o	1445d77364b4f94f
