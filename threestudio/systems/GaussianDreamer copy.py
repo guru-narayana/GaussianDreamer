@@ -89,7 +89,6 @@ class GaussianDreamer(BaseLift3DSystem):
         self.sh_degree =self.cfg.sh_degree
         self.load_type =self.cfg.load_type
         self.load_path = self.cfg.load_path
-
         self.gaussian = GaussianModel(sh_degree = self.sh_degree)
         bg_color = [1, 1, 1] if False else [0, 0, 0]
         self.background_tensor = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -154,7 +153,6 @@ class GaussianDreamer(BaseLift3DSystem):
         point_cloud.points = o3d.utility.Vector3dVector(coords)
         point_cloud.colors = o3d.utility.Vector3dVector(rgb)
         self.point_cloud = point_cloud
-
         return coords,rgb,0.4
     
     def add_points(self,coords,rgb):
@@ -226,7 +224,6 @@ class GaussianDreamer(BaseLift3DSystem):
     
     
     def forward(self, batch: Dict[str, Any],renderbackground = None) -> Dict[str, Any]:
-
         if renderbackground is None:
             renderbackground = self.background_tensor
         images = []
@@ -277,6 +274,7 @@ class GaussianDreamer(BaseLift3DSystem):
         self.prompt_processor = threestudio.find(self.cfg.prompt_processor_type)(
             self.cfg.prompt_processor
         )
+        print("here check")
         self.guidance = threestudio.find(self.cfg.guidance_type)(self.cfg.guidance)
     
     def training_step(self, batch, batch_idx):
@@ -284,7 +282,8 @@ class GaussianDreamer(BaseLift3DSystem):
         self.gaussian.update_learning_rate(self.true_global_step)
         
         if self.true_global_step > 500:
-            self.guidance.set_min_max_steps(min_step_percent=0.02, max_step_percent=0.55)
+            self.guidance.min_step_percent=0.02
+            self.guidance.max_step_percent=0.55
 
         self.gaussian.update_learning_rate(self.true_global_step)
 
