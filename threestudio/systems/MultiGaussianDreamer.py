@@ -72,8 +72,8 @@ def fetchPly(path):
     return BasicPointCloud(points=positions, colors=colors, normals=normals)
 
 
-@threestudio.register("gaussiandreamer-system")
-class GaussianDreamer(BaseLift3DSystem):
+@threestudio.register("multigaussiandreamer-system")
+class MultiGaussianDreamer(BaseLift3DSystem):
     @dataclass
     class Config(BaseLift3DSystem.Config):
         radius: float = 4
@@ -104,7 +104,6 @@ class GaussianDreamer(BaseLift3DSystem):
                 file.write(writer.read())
     
     def shape(self):
-
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         xm = load_model('transmitter', device=device)
         model = load_model('text300M', device=device)
@@ -274,8 +273,9 @@ class GaussianDreamer(BaseLift3DSystem):
         self.prompt_processor = threestudio.find(self.cfg.prompt_processor_type)(
             self.cfg.prompt_processor
         )
-        print("here check")
+        
         self.guidance = threestudio.find(self.cfg.guidance_type)(self.cfg.guidance)
+        print("guidance Created")
     
     def training_step(self, batch, batch_idx):
 
@@ -331,7 +331,6 @@ class GaussianDreamer(BaseLift3DSystem):
         return {"loss": loss}
 
 
-
     def on_before_optimizer_step(self, optimizer):
 
         with torch.no_grad():
@@ -348,11 +347,6 @@ class GaussianDreamer(BaseLift3DSystem):
                 if self.true_global_step > 300 and self.true_global_step % 100 == 0: # 500 100
                     size_threshold = 20 if self.true_global_step > 500 else None # 3000
                     self.gaussian.densify_and_prune(0.0002 , 0.05, self.cameras_extent, size_threshold) 
-
-
-
-
-
 
     def validation_step(self, batch, batch_idx):
         out = self(batch)
@@ -493,7 +487,6 @@ class GaussianDreamer(BaseLift3DSystem):
                 step=self.true_global_step,
             )
 
-
     def on_test_epoch_end(self):
         self.save_img_sequence(
             f"it{self.true_global_step}-test",
@@ -512,8 +505,6 @@ class GaussianDreamer(BaseLift3DSystem):
             self.save_gif_to_file(self.shapeimages, self.get_save_path("shape.gif"))
         load_ply(save_path,self.get_save_path(f"it{self.true_global_step}-test-color.ply"))
         
-
-
     def configure_optimizers(self):
         self.parser = ArgumentParser(description="Training script parameters")
         
