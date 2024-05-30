@@ -228,6 +228,7 @@ class MultiGaussianDreamer(BaseLift3DSystem):
         images = []
         depths = []
         self.viewspace_point_list = []
+        #print(batch)
         for id in range(batch['c2w_3dgs'].shape[0]):
        
             viewpoint_cam  = Camera(c2w = batch['c2w_3dgs'][id],FoVy = batch['fovy'][id],height = batch['height'],width = batch['width'])
@@ -293,8 +294,8 @@ class MultiGaussianDreamer(BaseLift3DSystem):
         images = out["comp_rgb"]
 
 
-        guidance_eval = (self.true_global_step % 200 == 0)
-        # guidance_eval = False
+        # guidance_eval = (self.true_global_step % 200 == 0)
+        guidance_eval = False
         
         guidance_out = self.guidance(
             images, prompt_utils, **batch, rgb_as_latents=False,guidance_eval=guidance_eval
@@ -396,7 +397,6 @@ class MultiGaussianDreamer(BaseLift3DSystem):
         bg_color = [1, 1, 1] if False else [0, 0, 0]
 
         testbackground_tensor = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
-
         out = self(batch,testbackground_tensor)
         if only_rgb:
             self.save_image_grid(

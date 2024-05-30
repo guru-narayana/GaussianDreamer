@@ -16,6 +16,7 @@ from threestudio.data.uncond import (
     RandomCameraDataModuleConfig,
     RandomCameraDataset,
     RandomCameraIterableDataset,
+    pose_spherical,
 )
 from threestudio.utils.config import parse_structured
 from threestudio.utils.misc import get_rank
@@ -217,25 +218,42 @@ class RandomMultiviewCameraIterableDataset(RandomCameraIterableDataset):
         c2w[:, 3, 3] = 1.0
 
         # get directions by dividing directions_unit_focal by focal length
-        focal_length: Float[Tensor, "B"] = 0.5 * self.height / torch.tan(0.5 * fovy)
-        directions: Float[Tensor, "B H W 3"] = self.directions_unit_focal[
-            None, :, :, :
-        ].repeat(self.batch_size, 1, 1, 1)
-        directions[:, :, :, :2] = (
-            directions[:, :, :, :2] / focal_length[:, None, None, None]
-        )
+        # focal_length: Float[Tensor, "B"] = 0.5 * self.height / torch.tan(0.5 * fovy)
+        # directions: Float[Tensor, "B H W 3"] = self.directions_unit_focal[
+        #     None, :, :, :
+        # ].repeat(self.batch_size, 1, 1, 1)
+        # directions[:, :, :, :2] = (
+        #     directions[:, :, :, :2] / focal_length[:, None, None, None]
+        # )
 
-        # Importance note: the returned rays_d MUST be normalized!
-        rays_o, rays_d = get_rays(directions, c2w, keepdim=True)
+        # # Importance note: the returned rays_d MUST be normalized!
+        # rays_o, rays_d = get_rays(directions, c2w, keepdim=True)
 
         proj_mtx: Float[Tensor, "B 4 4"] = get_projection_matrix(
             fovy, self.width / self.height, 0.1, 1000.0
         )  # FIXME: hard-coded near and far
         mvp_mtx: Float[Tensor, "B 4 4"] = get_mvp_matrix(c2w, proj_mtx)
 
+        c2w_3dgs = []
+        for id in range(self.batch_size):
+            render_pose = pose_spherical( azimuth_deg[id] + 180.0 - self.load_type*90 , -elevation_deg[id], camera_distances[id])
+            # print(azimuth_deg[id] , -elevation_deg[id], camera_distances[id]*2.0)
+            # print(render_pose)
+            matrix = torch.linalg.inv(render_pose)
+            # R = -np.transpose(matrix[:3,:3])
+            # R = -np.transpose(matrix[:3,:3])
+            R = -torch.transpose(matrix[:3,:3], 0, 1)
+            R[:,0] = -R[:,0]
+            T = -matrix[:3, 3]
+            c2w_single = torch.cat([R, T[:,None]], 1)
+            c2w_single = torch.cat([c2w_single, torch.tensor([[0,0,0,1]])], 0)
+            # c2w_single = convert_camera_to_world_transform(c2w_single)
+            c2w_3dgs.append(c2w_single)
+        
+        c2w_3dgs = torch.stack(c2w_3dgs, 0)
+        
         return {
-            "rays_o": rays_o,
-            "rays_d": rays_d,
+            "c2w_3dgs":c2w_3dgs,
             "mvp_mtx": mvp_mtx,
             "camera_positions": camera_positions,
             "c2w": c2w,

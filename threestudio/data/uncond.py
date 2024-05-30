@@ -150,17 +150,15 @@ class RandomCameraIterableDataset(IterableDataset, Updateable):
             yield {}
 
     def progressive_view(self, global_step):
-        pass
-
-        # r = min(1.0, global_step / (self.cfg.progressive_until + 1))
-        # self.elevation_range = [
-        #     (1 - r) * self.cfg.eval_elevation_deg + r * self.cfg.elevation_range[0],
-        #     (1 - r) * self.cfg.eval_elevation_deg + r * self.cfg.elevation_range[1],
-        # ]
-        # self.azimuth_range = [
-        #     (1 - r) * 0.0 + r * self.cfg.azimuth_range[0],
-        #     (1 - r) * 0.0 + r * self.cfg.azimuth_range[1],
-        # ]
+        r = min(1.0, global_step / (self.cfg.progressive_until + 1))
+        self.elevation_range = [
+            (1 - r) * self.cfg.eval_elevation_deg + r * self.cfg.elevation_range[0],
+            (1 - r) * self.cfg.eval_elevation_deg + r * self.cfg.elevation_range[1],
+        ]
+        self.azimuth_range = [
+            (1 - r) * 0.0 + r * self.cfg.azimuth_range[0],
+            (1 - r) * 0.0 + r * self.cfg.azimuth_range[1],
+        ]
 
         # self.camera_distance_range = [
         #     (1 - r) * self.cfg.eval_camera_distance
@@ -304,7 +302,7 @@ class RandomCameraIterableDataset(IterableDataset, Updateable):
             local_y = F.normalize(torch.cross(local_z, local_x, dim=-1), dim=-1)
             rot = torch.stack([local_x, local_y, local_z], dim=-1)
             light_azimuth = (
-                torch.rand(self.batch_size) * math.pi * 2 - math.pi
+                torch.rand(self.batch_size) * math.pi - 2 * math.pi
             )  # [-pi, pi]
             light_elevation = (
                 torch.rand(self.batch_size) * math.pi / 3 + math.pi / 6

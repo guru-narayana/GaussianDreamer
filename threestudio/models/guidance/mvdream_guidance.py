@@ -22,12 +22,12 @@ from threestudio.utils.typing import *
 class MVDream_guidance(BaseModule):
     @dataclass
     class Config(BaseModule.Config):
-        model_name: str = "sd-v2.1-base-4view" # check mvdream.model_zoo.PRETRAINED_MODELS
-        ckpt_path: Optional[str] = None # path to local checkpoint (None for loading from url)
+        model_name: str = "sd-v2.1-base-4view" 
+        ckpt_path: Optional[str] = None 
         guidance_scale: float = 50.0
         grad_clip: Optional[
             Any
-        ] = None  # field(default_factory=lambda: [0, 2.0, 8.0, 1000])
+        ] = None 
         half_precision_weights: bool = True
 
         min_step_percent: float = 0.02
@@ -38,7 +38,7 @@ class MVDream_guidance(BaseModule):
 
         n_view: int = 4
         image_size: int = 256
-        recon_loss: bool = True
+        recon_loss: bool = False
         recon_std_rescale: float = 0.5
 
     cfg: Config
@@ -56,7 +56,6 @@ class MVDream_guidance(BaseModule):
         self.min_step = int( self.num_train_timesteps * min_step_percent )
         self.max_step = int( self.num_train_timesteps * max_step_percent )
         self.grad_clip_val: Optional[float] = None
-
         self.to(self.device)
 
         threestudio.info(f"Loaded MV-Dream Diffusion!")
@@ -65,9 +64,8 @@ class MVDream_guidance(BaseModule):
             camera: Float[Tensor, "B 4 4"],
             fovy = None,
     ):
-        # Note: the input of threestudio is already blender coordinate system
-        # camera = convert_opengl_to_blender(camera)
-        if self.cfg.camera_condition_type == "rotation": # normalized camera
+
+        if self.cfg.camera_condition_type == "rotation": 
             camera = normalize_camera(camera)
             camera = camera.flatten(start_dim=1)
         else:
@@ -79,7 +77,7 @@ class MVDream_guidance(BaseModule):
     ) -> Float[Tensor, "B 4 32 32"]:
         imgs = imgs * 2.0 - 1.0
         latents = self.model.get_first_stage_encoding(self.model.encode_first_stage(imgs))
-        return latents  # [B, 4, 32, 32] Latent space image
+        return latents 
 
     def forward(
         self,
@@ -113,12 +111,9 @@ class MVDream_guidance(BaseModule):
             if rgb_as_latents:
                 latents = F.interpolate(rgb_BCHW, (64, 64), mode='bilinear', align_corners=False) * 2 - 1
             else:
-                # interp to 512x512 to be fed into vae.
                 pred_rgb = F.interpolate(rgb_BCHW, (self.cfg.image_size, self.cfg.image_size), mode='bilinear', align_corners=False)
-                # encode image into latents with vae, requires grad!
                 latents = self.encode_images(pred_rgb)
 
-        # sample timestep
         if timestep is None:
             t = torch.randint(self.min_step, self.max_step + 1, [1], dtype=torch.long, device=latents.device)
         else:
@@ -126,14 +121,10 @@ class MVDream_guidance(BaseModule):
             t = torch.full([1], timestep, dtype=torch.long, device=latents.device)
         t_expand = t.repeat(text_embeddings.shape[0])
 
-        # predict the noise residual with unet, NO grad!
         with torch.no_grad():
-            # add noise
             noise = torch.randn_like(latents)
             latents_noisy = self.model.q_sample(latents, t, noise)
-            # pred noise
             latent_model_input = torch.cat([latents_noisy] * 2)
-            # save input tensors for UNet
             if camera is not None:
                 camera = self.get_camera_cond(camera, fovy)
                 camera = camera.repeat(2,1).to(text_embeddings)
@@ -142,42 +133,19 @@ class MVDream_guidance(BaseModule):
                 context = {"context": text_embeddings}
             noise_pred = self.model.apply_model(latent_model_input, t_expand, context)
 
-        # perform guidance
         noise_pred_text, noise_pred_uncond = noise_pred.chunk(2) # Note: flipped compared to stable-dreamfusion
         noise_pred = noise_pred_uncond + self.cfg.guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-        if self.cfg.recon_loss:
-            # reconstruct x0
-            latents_recon = self.model.predict_start_from_noise(latents_noisy, t, noise_pred)
 
-            # clip or rescale x0
-            if self.cfg.recon_std_rescale > 0:
-                latents_recon_nocfg = self.model.predict_start_from_noise(latents_noisy, t, noise_pred_text)
-                latents_recon_nocfg_reshape = latents_recon_nocfg.view(-1,self.cfg.n_view, *latents_recon_nocfg.shape[1:])
-                latents_recon_reshape = latents_recon.view(-1,self.cfg.n_view, *latents_recon.shape[1:])
-                factor = (latents_recon_nocfg_reshape.std([1,2,3,4],keepdim=True) + 1e-8) / (latents_recon_reshape.std([1,2,3,4],keepdim=True) + 1e-8)
-                
-                latents_recon_adjust = latents_recon.clone() * factor.squeeze(1).repeat_interleave(self.cfg.n_view, dim=0)
-                latents_recon = self.cfg.recon_std_rescale * latents_recon_adjust + (1-self.cfg.recon_std_rescale) * latents_recon
+        w = (1 - self.model.alphas_cumprod[t])
+        grad = w * (noise_pred - noise)
 
-            # x0-reconstruction loss from Sec 3.2 and Appendix
-            loss = 0.5 * F.mse_loss(latents, latents_recon.detach(), reduction="sum") / latents.shape[0]
-            grad = torch.autograd.grad(loss, latents, retain_graph=True)[0]
+        if self.grad_clip_val is not None:
+            grad = grad.clamp(-self.grad_clip_val, self.grad_clip_val)
+        grad = torch.nan_to_num(grad)
 
-        else:
-            # Original SDS
-            # w(t), sigma_t^2
-            w = (1 - self.alphas_cumprod[t])
-            grad = w * (noise_pred - noise)
-
-            # clip grad for stable training?
-            if self.grad_clip_val is not None:
-                grad = grad.clamp(-self.grad_clip_val, self.grad_clip_val)
-            grad = torch.nan_to_num(grad)
-
-            target = (latents - grad).detach()
-            # d(loss)/d(latents) = latents - target = latents - (latents - grad) = grad
-            loss = 0.5 * F.mse_loss(latents, target, reduction="sum") / latents.shape[0]
+        target = (latents - grad).detach()
+        loss = 0.5 * F.mse_loss(latents, target, reduction="sum") / latents.shape[0]
 
         return {
             "loss_sds": loss,
@@ -189,3 +157,5 @@ class MVDream_guidance(BaseModule):
         max_step_percent = C(self.cfg.max_step_percent, epoch, global_step)
         self.min_step = int( self.num_train_timesteps * min_step_percent )
         self.max_step = int( self.num_train_timesteps * max_step_percent )
+        if self.cfg.grad_clip is not None:
+            self.grad_clip_val = C(self.cfg.grad_clip, epoch, global_step)
