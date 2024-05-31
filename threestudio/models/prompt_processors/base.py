@@ -165,6 +165,75 @@ class PromptProcessorOutput:
         ).reshape(batch_size, 2)
 
 
+    def get_text_embeddings_perp_neg_va(
+        self,
+        elevation: Float[Tensor, "B"],
+        azimuth: Float[Tensor, "B"],
+        camera_distances: Float[Tensor, "B"],
+        view_dependent_prompting: bool = True,
+    ) -> Tuple[Float[Tensor, "BBBB N Nf"], Float[Tensor, "B 2"]]:
+
+        batch_size = elevation.shape[0]
+
+        direction_idx = torch.zeros_like(elevation, dtype=torch.long)
+        for d in self.directions:
+            direction_idx[
+                d.condition(elevation, azimuth, camera_distances)
+            ] = self.direction2idx[d.name]
+
+
+        neg_text_embeddings = []
+        neg_guidance_weights = []
+        uncond_text_embeddings = []
+
+        side_emb = self.text_embeddings_vd[0]
+        front_emb = self.text_embeddings_vd[1]
+
+        for idx, azi in zip(
+            direction_idx, azimuth
+        ):
+            azi = shift_azimuth_deg(azi)
+            if idx.item() == 3: 
+                neg_text_embeddings += [
+                    self.uncond_text_embeddings_vd[idx],
+                    self.uncond_text_embeddings_vd[idx],
+                ]
+                neg_guidance_weights += [0.0, 0.0]
+            else:
+                if torch.abs(azi) < 90:
+                    r_inter = 1 - torch.abs(azi) / 90
+                    neg_text_embeddings += [front_emb, side_emb]
+                    neg_guidance_weights += [
+                        -shifted_expotional_decay(*self.perp_neg_f_fs, r_inter),
+                        -shifted_expotional_decay(*self.perp_neg_f_sf, 1 - r_inter),
+                    ]
+                else:
+                    r_inter = 2.0 - torch.abs(azi) / 90
+                    neg_text_embeddings += [side_emb, front_emb]
+                    neg_guidance_weights += [
+                        -shifted_expotional_decay(*self.perp_neg_f_sb, r_inter),
+                        -shifted_expotional_decay(*self.perp_neg_f_fsb, r_inter),
+                    ]
+
+
+        pos_text_embeddings = self.text_embeddings.expand(batch_size, -1, -1)  # type: ignore
+        uncond_text_embeddings = self.uncond_text_embeddings.expand(  # type: ignore
+            batch_size, -1, -1
+        )
+
+        text_embeddings = torch.cat(
+            [
+                pos_text_embeddings,
+                uncond_text_embeddings,
+                torch.stack(neg_text_embeddings, dim=0),
+            ],
+            dim=0,
+        )
+
+        return text_embeddings, torch.as_tensor(
+            neg_guidance_weights, device=elevation.device
+        ).reshape(batch_size, 2)
+    
 def shift_azimuth_deg(azimuth: Float[Tensor, "..."]) -> Float[Tensor, "..."]:
     # shift azimuth angle (in degrees), to [-180, 180]
     return (azimuth + 180) % 360 - 180
@@ -176,7 +245,6 @@ class PromptProcessor(BaseObject):
         prompt: str = "a hamburger"
 
         # manually assigned view-dependent prompts
-        prompt_front: Optional[str] = None
         prompt_side: Optional[str] = None
         prompt_back: Optional[str] = None
         prompt_overhead: Optional[str] = None
@@ -317,7 +385,7 @@ class PromptProcessor(BaseObject):
             ]
         else:
             self.prompts_vd = [
-                self.cfg.get(f"prompt_{d.name}", None) or d.prompt(self.prompt)  # type: ignore
+                d.prompt(self.cfg.get(f"prompt_{d.name}", None) or self.prompt)  # type: ignore
                 for d in self.directions
             ]
 

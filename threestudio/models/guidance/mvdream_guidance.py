@@ -17,6 +17,7 @@ from threestudio.models.prompt_processors.base import PromptProcessorOutput
 from threestudio.utils.base import BaseModule
 from threestudio.utils.misc import C, cleanup, parse_version
 from threestudio.utils.typing import *
+from threestudio.utils.ops import perpendicular_component
 
 @threestudio.register("mvdream-guidance")
 class MVDream_guidance(BaseModule):
@@ -99,10 +100,6 @@ class MVDream_guidance(BaseModule):
 
         rgb_BCHW = rgb.permute(0, 3, 1, 2)
 
-        if text_embeddings is None:
-            text_embeddings = prompt_utils.get_text_embeddings(
-                elevation, azimuth, camera_distances, self.cfg.view_dependent_prompting
-            )
 
         if input_is_latent:
             latents = rgb
@@ -119,22 +116,61 @@ class MVDream_guidance(BaseModule):
         else:
             assert timestep >= 0 and timestep < self.num_train_timesteps
             t = torch.full([1], timestep, dtype=torch.long, device=latents.device)
-        t_expand = t.repeat(text_embeddings.shape[0])
 
-        with torch.no_grad():
-            noise = torch.randn_like(latents)
-            latents_noisy = self.model.q_sample(latents, t, noise)
-            latent_model_input = torch.cat([latents_noisy] * 2)
-            if camera is not None:
-                camera = self.get_camera_cond(camera, fovy)
-                camera = camera.repeat(2,1).to(text_embeddings)
-                context = {"context": text_embeddings, "camera": camera, "num_frames": self.cfg.n_view}
-            else:
-                context = {"context": text_embeddings}
-            noise_pred = self.model.apply_model(latent_model_input, t_expand, context)
 
-        noise_pred_text, noise_pred_uncond = noise_pred.chunk(2) # Note: flipped compared to stable-dreamfusion
-        noise_pred = noise_pred_uncond + self.cfg.guidance_scale * (noise_pred_text - noise_pred_uncond)
+        if prompt_utils.use_perp_neg:
+            (text_embeddings,neg_guidance_weights,) = prompt_utils.get_text_embeddings_perp_neg_va(
+                elevation, azimuth, camera_distances, self.cfg.view_dependent_prompting
+                )
+            t_expand = t.repeat(text_embeddings.shape[0])
+            with torch.no_grad():
+                noise = torch.randn_like(latents)
+                latents_noisy = self.model.q_sample(latents, t, noise)
+                latent_model_input = torch.cat([latents_noisy] * 4)
+                if camera is not None:
+                    camera = self.get_camera_cond(camera, fovy)
+                    camera = camera.repeat(4,1).to(text_embeddings)
+                    context = {"context": text_embeddings, "camera": camera, "num_frames": self.cfg.n_view}
+                else:
+                    context = {"context": text_embeddings}
+                noise_pred = self.model.apply_model(latent_model_input, t_expand, context)
+            noise_pred_text = noise_pred[:batch_size]
+            noise_pred_uncond = noise_pred[batch_size : batch_size * 2]
+            noise_pred_neg = noise_pred[batch_size * 2 :]
+
+            e_pos = noise_pred_text - noise_pred_uncond
+            accum_grad = 0
+            n_negative_prompts = neg_guidance_weights.shape[-1]
+            for i in range(n_negative_prompts):
+                e_i_neg = noise_pred_neg[i::n_negative_prompts] - noise_pred_uncond
+                accum_grad += neg_guidance_weights[:, i].view(
+                    -1, 1, 1, 1
+                ) * perpendicular_component(e_i_neg, e_pos)
+
+            noise_pred = noise_pred_uncond + self.cfg.guidance_scale * (
+                e_pos + accum_grad
+            )             
+
+        else:
+            if text_embeddings is None:
+                text_embeddings = prompt_utils.get_text_embeddings(
+                    elevation, azimuth, camera_distances, self.cfg.view_dependent_prompting
+                )
+            t_expand = t.repeat(text_embeddings.shape[0])
+            with torch.no_grad():
+                noise = torch.randn_like(latents)
+                latents_noisy = self.model.q_sample(latents, t, noise)
+                latent_model_input = torch.cat([latents_noisy] * 2)
+                if camera is not None:
+                    camera = self.get_camera_cond(camera, fovy)
+                    camera = camera.repeat(2,1).to(text_embeddings)
+                    context = {"context": text_embeddings, "camera": camera, "num_frames": self.cfg.n_view}
+                else:
+                    context = {"context": text_embeddings}
+                noise_pred = self.model.apply_model(latent_model_input, t_expand, context)
+
+            noise_pred_text, noise_pred_uncond = noise_pred.chunk(2) # Note: flipped compared to stable-dreamfusion
+            noise_pred = noise_pred_uncond + self.cfg.guidance_scale * (noise_pred_text - noise_pred_uncond)
 
 
         w = (1 - self.model.alphas_cumprod[t])

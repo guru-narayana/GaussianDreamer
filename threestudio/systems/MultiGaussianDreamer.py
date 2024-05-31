@@ -284,7 +284,7 @@ class MultiGaussianDreamer(BaseLift3DSystem):
         
         if self.true_global_step > 500:
             self.guidance.min_step_percent=0.02
-            self.guidance.max_step_percent=0.55
+            self.guidance.max_step_percent=0.7
 
         self.gaussian.update_learning_rate(self.true_global_step)
 
