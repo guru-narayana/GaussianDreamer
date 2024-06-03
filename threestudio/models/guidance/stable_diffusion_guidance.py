@@ -19,7 +19,7 @@ from threestudio.utils.typing import *
 class StableDiffusionGuidance(BaseObject):
     @dataclass
     class Config(BaseObject.Config):
-        pretrained_model_name_or_path: str = "runwayml/stable-diffusion-v1-5"
+        pretrained_model_name_or_path: str = "stabilityai/stable-diffusion-2-1-base"
         enable_memory_efficient_attention: bool = False
         enable_sequential_cpu_offload: bool = False
         enable_attention_slicing: bool = False
@@ -129,7 +129,6 @@ class StableDiffusionGuidance(BaseObject):
         self.alphas: Float[Tensor, "..."] = self.scheduler.alphas_cumprod.to(
             self.device
         )
-        print(self.alphas)
         if self.cfg.use_sjc:
             # score jacobian chaining need mu
             self.us: Float[Tensor, "..."] = torch.sqrt((1 - self.alphas) / self.alphas)
@@ -228,7 +227,6 @@ class StableDiffusionGuidance(BaseObject):
                 e_pos + accum_grad
             )
         else:
-            print("not using negitive prompt")
             neg_guidance_weights = None
             text_embeddings = prompt_utils.get_text_embeddings(
                 elevation, azimuth, camera_distances, self.cfg.view_dependent_prompting

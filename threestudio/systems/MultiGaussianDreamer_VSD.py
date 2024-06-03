@@ -72,7 +72,7 @@ def fetchPly(path):
     return BasicPointCloud(points=positions, colors=colors, normals=normals)
 
 
-@threestudio.register("multigaussiandreamer-system")
+@threestudio.register("multigaussiandreamer-vsd-system")
 class MultiGaussianDreamer(BaseLift3DSystem):
     @dataclass
     class Config(BaseLift3DSystem.Config):

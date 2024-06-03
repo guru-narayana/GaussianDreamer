@@ -1,4 +1,5 @@
 from . import (
     GaussianDreamer,
-    MultiGaussianDreamer
+    MultiGaussianDreamer,
+    MultiGaussianDreamer_VSD
 )
