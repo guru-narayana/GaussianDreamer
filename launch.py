@@ -103,6 +103,8 @@ def main(args, extras) -> None:
     # set a different seed for each device
     pl.seed_everything(cfg.seed + get_rank(), workers=True)
 
+    print(cfg.trial_dir)
+
     dm = threestudio.find(cfg.data_type)(cfg.data)
     system: BaseSystem = threestudio.find(cfg.system_type)(
         cfg.system, resumed=cfg.resume is not None
@@ -120,13 +122,13 @@ def main(args, extras) -> None:
     callbacks = []
     if args.train:
         callbacks += [
-            ModelCheckpoint(
-                dirpath=os.path.join(cfg.trial_dir, "ckpts"), **cfg.checkpoint
-            ),
+            # ModelCheckpoint(
+            #     dirpath=os.path.join(cfg.trial_dir, "ckpts"), **cfg.checkpoint
+            # ),
             LearningRateMonitor(logging_interval="step"),
-            CodeSnapshotCallback(
-                os.path.join(cfg.trial_dir, "code"), use_version=False
-            ),
+            # CodeSnapshotCallback(
+            #     os.path.join(cfg.trial_dir, "code"), use_version=False
+            # ),
             ConfigSnapshotCallback(
                 args.config,
                 cfg,
@@ -153,7 +155,7 @@ def main(args, extras) -> None:
             lambda: os.makedirs(os.path.join(cfg.trial_dir, "tb_logs"), exist_ok=True)
         )()
         loggers += [
-            TensorBoardLogger(cfg.trial_dir, name="tb_logs"),
+            #TensorBoardLogger(cfg.trial_dir, name="tb_logs"),
             CSVLogger(cfg.trial_dir, name="csv_logs"),
         ] + system.get_loggers()
         rank_zero_only(
@@ -238,3 +240,5 @@ if __name__ == "__main__":
             main(args, extras)
     else:
         main(args, extras)
+
+
