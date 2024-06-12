@@ -19,7 +19,7 @@ from threestudio.utils.base import BaseModule
 from threestudio.utils.misc import C, cleanup, parse_version
 from threestudio.utils.typing import *
 from threestudio.utils.ops import perpendicular_component
-
+from threestudio.models.guidance.minimal_unet import MinimalUNet
 from peft import LoraConfig,get_peft_model
 
 def print_trainable_parameters(model,model_2):
@@ -71,6 +71,7 @@ class MVDream_guidance(BaseModule):
         threestudio.info(f"Loading MV-Dream Diffusion ...")
 
         self.model = build_model(self.cfg.model_name, ckpt_path=self.cfg.ckpt_path)
+        # self.lora_model = MinimalUNet(64, 64)
         self.lora_model = copy.deepcopy(self.model)
         config = LoraConfig(
                         r=self.Config.lora_rank,
