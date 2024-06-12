@@ -9,7 +9,7 @@ def delete_dir_contents(dir_path):
     """
 
     for filename in os.listdir(dir_path):
-        if filename == "save":
+        if filename == "save" or filename == "configs":
             continue
         file_path = os.path.join(dir_path, filename)
         if os.path.isfile(file_path):
@@ -17,7 +17,8 @@ def delete_dir_contents(dir_path):
         elif os.path.isdir(file_path):
            shutil.rmtree(file_path)  # Recursively remove subdirectories
 # Example usage:
-dir_to_clear = "outputs/multigaussiandreamer-vsd/A_rainbow-colored_umbrella@20240605-104900"
+dir_to_clear = "\
+outputs/multigaussiandreamer-vsd/A_rustic_wrought-iron_candle_holder@20240606-133230"
 delete_dir_contents(dir_to_clear)
 
 print(f"Contents of '{dir_to_clear}' have been deleted.")

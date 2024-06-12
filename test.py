@@ -1,110 +1,62 @@
+# read the names of all folders in a directory and write them to a file
+
 import os
-import sys
-import random
-import argparse
+import pandas as pd
+import re
 from PIL import Image
-import numpy as np
-from omegaconf import OmegaConf
-import torch 
+import ImageReward as RM
+model = RM.load("ImageReward-v1.0")
 
-from mvdream.camera_utils import get_camera
-from mvdream.ldm.util import instantiate_from_config
-from mvdream.ldm.models.diffusion.ddim import DDIMSampler
-from mvdream.model_zoo import build_model
+def get_file_names(folder):
+    files = os.listdir(folder)
+    List = []
+    for file in files:
+        file = file.split('@')[0]
+        prompt = file.replace('_', ' ')
+        List.append((file, prompt))
+    return List
 
-from peft import LoraConfig,get_peft_model
+def retrieve_image(base_directory, regex):
+    for root, dirs, files in os.walk(base_directory):
+        for file in files:
+            full_path = os.path.join(root, file)
+            if regex.match(full_path):
+                img = Image.open(full_path)                 
+                return img
+    return None
 
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+def find_file_with_pattern(base = "sd",use_view_based_pormpting = False):
+    base_directory = 'outputs/gaussiandreamer-' + base
+    prompt_list = get_file_names(base_directory)
+    df  = pd.DataFrame(columns=["Prompt", "Front view", "Side view 1", "Back view", "Side view 2"])
+    for prompt_info in prompt_list:
+        prompt_file, prompt = prompt_info
+        image_ids = [0,30,60,90]
+        prompt_extensions = [", front view", ", side view", ", back view", ", side view"]
+        scores = []
+        for index, image_id in enumerate(image_ids):
+            if use_view_based_pormpting:
+                prompt_view  = prompt + prompt_extensions[index]
+            else:
+                prompt_view = prompt
+            pattern = r'.*/' +prompt_file + '@\d{8}-\d{6}/save/it\d+-test/'+ str(image_id) +'+\.png$'
+            regex = re.compile(pattern)
+            img = retrieve_image(base_directory, regex)
+            if img:
+                score = model.score(prompt_view, img)* 20 + 50
+                scores.append(score)
+            else:
+                print("Invalid image path encountered : ",prompt_file,image_id)
+        data = pd.DataFrame({'Prompt': [prompt], 'Front view': [scores[0]], 'Side view 1': [scores[1]],  "Back view" : [scores[2]], "Side view 2" : [scores[3]]})
+        df = pd.concat([df,data], ignore_index=True)
+    df = df.sort_values(df.columns[0], ascending = False)
+    df.to_csv(f'scores_{base}_{use_view_based_pormpting}.csv', index=False) 
 
-def print_trainable_parameters(model):
-    """
-    Prints the number of trainable parameters in the model.
+
+def main():
+    find_file_with_pattern(base="vsd")
     
-    Args:
-    model: The model to inspect.
-    """
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"Trainable parameters: {trainable_params}")
-    print(f"Total parameters: {total_params}")
-    print(f"Percentage of trainable parameters: {100 * trainable_params / total_params:.2f}%")
+
 
 if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", type=str, default="sd-v2.1-base-4view", help="load pre-trained model from hugginface")
-    parser.add_argument("--config_path", type=str, default=None, help="load model from local config (override model_name)")
-    parser.add_argument("--ckpt_path", type=str, default=None, help="path to local checkpoint")
-    parser.add_argument("--text", type=str, default="an astronaut riding a horse")
-    parser.add_argument("--suffix", type=str, default=", 3d asset")
-    parser.add_argument("--size", type=int, default=256)
-    parser.add_argument("--num_frames", type=int, default=4, help="num of frames (views) to generate")
-    parser.add_argument("--use_camera", type=int, default=1)
-    parser.add_argument("--camera_elev", type=int, default=15)
-    parser.add_argument("--camera_azim", type=int, default=90)
-    parser.add_argument("--camera_azim_span", type=int, default=360)
-    parser.add_argument("--seed", type=int, default=23)
-    parser.add_argument("--fp16", action="store_true")
-    parser.add_argument("--device", type=str, default='cuda:2')
-    args = parser.parse_args()
-
-    dtype = torch.float16 if args.fp16 else torch.float32
-    device = args.device
-    batch_size = max(4, args.num_frames)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    print("load t2i model ... ")
-    if args.config_path is None:
-        model = build_model(args.model_name, ckpt_path=args.ckpt_path)
-    else:
-        assert args.ckpt_path is not None, "ckpt_path must be specified!"
-        config = OmegaConf.load(args.config_path)
-        model = instantiate_from_config(config.model)
-        model.load_state_dict(torch.load(args.ckpt_path, map_location=device))
-    model.device = device
-    model.to(device)
-    model.eval()
-
-    import re
-    model_modules = str(model.modules)
-    pattern = r'\((\w+)\): Linear'
-    linear_layer_names = re.findall(pattern, model_modules)
-
-    names = []
-    # Print the names of the Linear layers
-    for name in linear_layer_names:
-        names.append(name)
-    target_modules = list(set(names))
-    print(target_modules)
-
-
-
-
-
-
-    config = LoraConfig(
-        r=32,
-        lora_alpha=32,
-        target_modules=[ 'proj_in'],
-        lora_dropout=0.1,
-        bias="lora_only",
-        modules_to_save=["decode_head"],
-    )
-    lora_model = get_peft_model(model, config)
-    print_trainable_parameters(lora_model)
+    main()

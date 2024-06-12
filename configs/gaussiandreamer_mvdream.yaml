@@ -16,7 +16,6 @@ data:
   eval_height: 512
   eval_width: 512
   n_val_views: 4
-  n_test_views: 5
 
 system_type: "multigaussiandreamer-system"
 system:
